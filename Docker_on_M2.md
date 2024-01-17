@@ -1,9 +1,11 @@
-brew install docker
-brew install docker-compose
-brew install colima
-brew reinstall qemu
+# Run docker on Apple Silcon with hacks
 
-colima start --cpu 4 --memory 8 --arch x86_64
+1. brew install docker
+1. brew install docker-compose
+1. brew install colima
+1. brew reinstall qemu
+
+1. colima start --cpu 8 --memory 16 --arch x86_64
 
 
 

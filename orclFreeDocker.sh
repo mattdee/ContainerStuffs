@@ -343,35 +343,46 @@ function setupORDS()
 
 }
 
-# process arguements to bypass the menu
-if [ "$1" = "start" ]; then
-    echo "Starting container..."
-    startOracle
-elif 
-    [ "$1" = "stop" ]; then
+# Process arguments to bypass the menu
+case "$1" in
+    "start")
+        echo "Starting container..."
+        startOracle
+        ;;
+    "stop")
         echo "Stopping container..."
         stopOracle
-    elif
-        [ "$1" = "restart" ]; then
-            echo "Restarting container..."
-            stopOracle
-            startOracle
-    elif
-        [ "$1" = "bash" ]; then
-            echo "Attempting bash acess..."
-            bashAccess
-    elif 
-        [ "$1" = "sql" ]; then
+        ;;
+    "restart")
+        echo "Restarting container..."
+        stopOracle
+        startOracle
+        ;;
+    "bash")
+        echo "Attempting bash access..."
+        bashAccess
+        ;;
+    "root")
+        echo "Attempting root access..."
+        rootAccess
+        ;;
+    "sql")
         echo "Attempting SQLPlus access..."
         sqlPlususer
-    elif
-        [ "$1" = "help" ]; then
-            echo "Providing help..."
-            helpMe
-    elif [ -z "$1" ]; then
+        ;;
+    "help")
+        echo "Providing help..."
+        helpMe
+        ;;
+    "")
         echo "No args...proceed with menu"
         #sleep 3
-fi
+        ;;
+    *)
+        echo "Invalid argument: $1"
+        ;;
+esac
+
 
 
 # Let's go to work

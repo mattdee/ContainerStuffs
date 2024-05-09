@@ -169,6 +169,8 @@ function installUtils()
 {
     checkDocker
     export orclRunning=$(docker ps --no-trunc --format "table {{.ID}}\t {{.Names}}\t" | grep -i Oracle_DB_Container  | awk '{print $2}' )
+    # workaround for ol repo issues, need to zero file
+    #docker exec -it -u 0 $orclRunning echo > /etc/yum/vars/ociregion
     docker exec -it -u 0 $orclRunning /usr/bin/rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
     docker exec -it -u 0 $orclRunning /usr/bin/yum install -y sudo which java wget htop lsof zip unzip rlwrap
     docker exec $orclRunning wget -O /tmp/PS1.sh https://raw.githubusercontent.com/mattdee/orclDocker/main/PS1.sh
@@ -190,6 +192,12 @@ function createDocknet()
     docker network create -d bridge docknet
 }
 
+function listPorts()
+{
+    export orclRunning=$(docker ps --no-trunc --format "table {{.ID}}\t {{.Names}}\t" | grep -i Oracle_DB_Container  | awk '{print $2}' )
+    docker port $orclRunning
+}
+
 function startOracle() # start or restart the container named Oracle_DB_Container
 {   
     checkDocker
@@ -208,9 +216,7 @@ function startOracle() # start or restart the container named Oracle_DB_Containe
         countDown
     else
         echo "No Oracle docker image found, provisioning..."
-        #docker run -d --network="bridge" -p 1521:1521 -p 5902:5902 -p 5500:5500 -p 8080:8080 -it --name Oracle_DB_Container container-registry.oracle.com/database/free
-
-        docker run -d --network="docknet" -p 1521:1521 -it --name Oracle_DB_Container container-registry.oracle.com/database/free:latest
+        docker run -d --network="docknet" -p 1521:1521 -p 5902:5902 -p 5500:5500 -p 8080:8080 -p 8443:8443 -p 37017:27017 -it --name Oracle_DB_Container container-registry.oracle.com/database/free:23.4.0.0
 
 
         export runningOrcl=$(docker ps --no-trunc --format '{"name":"{{.Names}}"}'    | cut -d : -f 2 | sed 's/"//g' | sed 's/}//g')
@@ -220,8 +226,10 @@ function startOracle() # start or restart the container named Oracle_DB_Containe
         echo "Installing useful tools after provisioning container..."
         installUtils
     fi
+    listPorts
 
 }
+
 
 
 function stopOracle()
@@ -307,6 +315,7 @@ function sqlPlususer()
 
 function setupORDS()
 {
+    # work in progress
     # need to configure ORDS for Mongo API access
     # https://docs.oracle.com/en/database/oracle/oracle-rest-data-services/23.4/ordig/oracle-api-mongodb-support.html#GUID-8C4D54C1-C2BF-4C94-A2E4-2183F25FD462
     checkDocker
@@ -329,9 +338,6 @@ function setupORDS()
     # grant soda_app, create session, create table, create view, create sequence, create procedure, create job, unlimited tablespace to matt;    
     # connect matt/matt@localhost:1521/FREEPDB1
     # exec ords.enable_schema;
-    # mongosh  --tlsAllowInvalidCertificates 'mongodb://matt:matt@localhost:27017/matt?authMechanism=PLAIN&authSource=$external&tls=true&retryWrites=false&loadBalanced=true'
-    # mongosh --tlsAllowInvalidCertificates -u matt -p matt 'mongodb://localhost:27017/matt?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true'
-    # mongosh -u admin -p DaOraH0ney90P2@1! 'mongodb://GB5465A498E89AB-VDYZTIQB1ZP9O7KV.adb.ca-toronto-1.oraclecloudapps.com:27017/admin?authMechanism=PLAIN&authSource=$external&ssl=true&retryWrites=false&loadBalanced=true'
 
 
 
@@ -345,7 +351,12 @@ elif
     [ "$1" = "stop" ]; then
         echo "Stopping container..."
         stopOracle
-    elif 
+    elif
+        [ "$1" = "restart" ]; then
+            echo "Restarting container..."
+            stopOracle
+            startOracle
+    elif
         [ "$1" = "bash" ]; then
             echo "Attempting bash acess..."
             bashAccess

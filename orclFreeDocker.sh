@@ -55,9 +55,10 @@ function startUp()
     echo "################################################"
     echo 
     echo "Please enter in your choice:> "
-    read whatwhat
+    read menuChoice
+    export menuChoice=$menuChoice
 
-#   if [ $whatwhat -gt 9 ]
+#   if [ $menuChoice -gt 9 ]
 #       then
 #       echo "Please enter a valid choice"
 #       sleep 3
@@ -164,21 +165,51 @@ function setorclPwd()
     docker exec $orclRunning /home/oracle/setPassword.sh Oradoc_db1
 }
 
+function installMongoTools()
+{
+    export orclImage=$(docker ps --no-trunc --format "table {{.ID}}\t {{.Names}}\t" | grep -i Oracle_DB_Container  | awk '{print $2}' )
+    docker exec -i -u 0 $orclImage /usr/bin/bash -c "echo '[mongodb-org-7.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/8/mongodb-org/7.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://pgp.mongodb.com/server-7.0.asc' >>/etc/yum.repos.d/mongodb-org-7.0.repo"
+
+    docker exec -i -u 0 $orclImage /usr/bin/yum install -y mongodb-org
+   
+}
 
 function installUtils()
 {
+    clear screen
+    echo "Installing useful tools after provisioning container..."
+    echo "Please be patient as this can take time given network latency."
+
     checkDocker
     export orclRunning=$(docker ps --no-trunc --format "table {{.ID}}\t {{.Names}}\t" | grep -i Oracle_DB_Container  | awk '{print $2}' )
     # workaround for ol repo issues, need to zero file
-    #docker exec -it -u 0 $orclRunning echo > /etc/yum/vars/ociregion
+    docker exec -it -u 0 $orclRunning /bin/bash -c "/usr/bin/touch /etc/yum/vars/ociregion"
+    docker exec -it -u 0 $orclRunning /bin/bash -c "/usr/bin/echo > /etc/yum/vars/ociregion"
+
+
+    docker exec -it -u 0 $orclRunning /bin/bash -c "/usr/bin/echo 'oracle ALL=(ALL) NOPASSWD: ALL' >>/etc/sudoers"
+
+
     docker exec -it -u 0 $orclRunning /usr/bin/rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
-    docker exec -it -u 0 $orclRunning /usr/bin/yum install -y sudo which java wget htop lsof zip unzip rlwrap
-    docker exec $orclRunning wget -O /tmp/PS1.sh https://raw.githubusercontent.com/mattdee/orclDocker/main/PS1.sh
-    docker exec $orclRunning bash /tmp/PS1.sh
-    docker exec $orclRunning wget -O /opt/oracle/product/23ai/dbhomeFree/sqlplus/admin/glogin.sql https://raw.githubusercontent.com/mattdee/orclDocker/main/glogin.sql
+    docker exec -it -u 0 $orclRunning /usr/bin/yum install -y sudo which java wget htop lsof zip unzip rlwrap git
+    docker exec -it -u 0 $orclRunning /usr/bin/rpm -ivh https://yum.oracle.com/repo/OracleLinux/OL8/oracle/software/x86_64/getPackage/ords-24.1.1-4.el8.noarch.rpm
+
+    # install mongo tools
+    installMongoTools
+
+    # get my personal tools
+    docker exec $orclRunning /usr/bin/wget -O /tmp/PS1.sh https://raw.githubusercontent.com/mattdee/orclDocker/main/PS1.sh
+    docker exec $orclRunning /bin/bash /tmp/PS1.sh
+    docker exec $orclRunning /usr/bin/wget -O /opt/oracle/product/23ai/dbhomeFree/sqlplus/admin/glogin.sql https://raw.githubusercontent.com/mattdee/orclDocker/main/glogin.sql
     setorclPwd
     startUp
 }
+
 
 function setorclPwd()
 {
@@ -216,14 +247,13 @@ function startOracle() # start or restart the container named Oracle_DB_Containe
         countDown
     else
         echo "No Oracle docker image found, provisioning..."
-        docker run -d --network="docknet" -p 1521:1521 -p 5902:5902 -p 5500:5500 -p 8080:8080 -p 8443:8443 -p 37017:27017 -it --name Oracle_DB_Container container-registry.oracle.com/database/free:23.4.0.0
+        docker run -d --network="docknet" -p 1521:1521 -p 5902:5902 -p 5500:5500 -p 8080:8080 -p 8443:8443 -p 27017:27017 -it --name Oracle_DB_Container container-registry.oracle.com/database/free:23.4.0.0
 
 
         export runningOrcl=$(docker ps --no-trunc --format '{"name":"{{.Names}}"}'    | cut -d : -f 2 | sed 's/"//g' | sed 's/}//g')
         echo "Oracle is running as: "$runningOrcl
         echo "Please be patient as it takes time for the container to start..."
         countDown
-        echo "Installing useful tools after provisioning container..."
         installUtils
     fi
     listPorts
@@ -313,33 +343,52 @@ function sqlPlususer()
     (CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=FREEPDB1)))'"
 }
 
+
+
 function setupORDS()
 {
     # work in progress
     # need to configure ORDS for Mongo API access
-    # https://docs.oracle.com/en/database/oracle/oracle-rest-data-services/23.4/ordig/oracle-api-mongodb-support.html#GUID-8C4D54C1-C2BF-4C94-A2E4-2183F25FD462
+    # https://docs.oracle.com/en/database/oracle/oracle-rest-data-services/24.1/ordig/oracle-api-mongodb-support.html
+    # https://docs.oracle.com/en/database/oracle/oracle-rest-data-services/24.1/ordig/non-interactive-CLI-commands.html#GUID-3AAB1409-A018-40B7-A208-0C10EC41AFAC
+    # https://www.thatjeffsmith.com/archive/2021/09/yum-install-ords/
+
     checkDocker
     export orclImage=$(docker ps --no-trunc --format "table {{.ID}}\t {{.Names}}\t" | grep -i Oracle_DB_Container  | awk '{print $2}' )
-    docker exec -i -u 0 $orclImage curl -s "https://get.sdkman.io" | bash
-    docker exec -it $orclImage /usr/bin/echo """source "/home/oracle/.sdkman/bin/sdkman-init.sh""">>/home/oracle/.bash_profile"
-    docker exec -it -u 0 $orclImage /usr/bin/rpm -ivh https://yum.oracle.com/repo/OracleLinux/OL8/oracle/software/x86_64/getPackage/ords-23.4.0-8.el8.noarch.rpm
-    # ORDS silent config
-    docker exec -i -u 0 $orclImage echo ""Oradoc_db1 > /tmp/orclpwd""
-    # silent set up
-    # docker exec -i $orclImage /usr/local/bin/ords --config /etc/ords/config install --admin-user SYS --db-hostname localhost --db-port 1521 --db-servicename FREE --log-folder /tmp/ --feature-sdw true --feature-db-api true --feature-rest-enabled-sql true --password-stdin </tmp/orclpwd
-    # manual set up
-    docker exec -i $orclImage /usr/local/bin/ords --config /etc/ords/config install
-    docker exec -it $orclImage /usr/local/bin/ords --config /etc/ords/config set mongo.enabled true
-    docker exec -it $orclImage /usr/local/bin/ords config set mongo.enabled true
+        
+    # make temp passwd file
+    docker exec -i -u 0 $orclImage /bin/bash -c "echo 'Oradoc_db1' > /tmp/orclpwd"
+    # ORDS silent set up
+    docker exec -i $orclImage /bin/bash -c "/usr/local/bin/ords --config /etc/ords/config install --admin-user SYS --db-hostname localhost --db-port 1521 --db-servicename FREEPDB1 --log-folder /tmp/ --feature-sdw true --feature-db-api true --feature-rest-enabled-sql true --password-stdin </tmp/orclpwd"
     
-    docker exec -it $orclImage /usr/local/bin/ords serve
+    # manual set up
+    #docker exec -i $orclImage /usr/local/bin/ords --config /etc/ords/config install
 
+    # set mongoapi configs
+    docker exec -it $orclImage /usr/local/bin/ords config set mongo.enabled true
+    docker exec -it $orclImage /usr/local/bin/ords config set mongo.port 27017
+    docker exec -it $orclImage /usr/local/bin/ords config info mongo.enabled
+    docker exec -it $orclImage /usr/local/bin/ords config info mongo.port
+    docker exec -it $orclImage /bin/bash -c "/usr/bin/nohup /usr/local/bin/ords serve &"
 
-    # grant soda_app, create session, create table, create view, create sequence, create procedure, create job, unlimited tablespace to matt;    
-    # connect matt/matt@localhost:1521/FREEPDB1
-    # exec ords.enable_schema;
+    # set db privs for user
+    docker exec -it $orclImage bash -c "source /home/oracle/.bashrc; sqlplus sys/Oradoc_db1@'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=127.0.0.1)(PORT=1521))
+    (CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=FREEPDB1)))' as sysdba <<EOF
+    grant soda_app, create session, create table, create view, create sequence, create procedure, create job, unlimited tablespace to matt;
+    exit;
+EOF"
+    
+    # ords enable the matt schema
+    docker exec -it $orclImage bash -c "source /home/oracle/.bashrc; sqlplus matt/matt@'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=127.0.0.1)(PORT=1521))
+    (CONNECT_DATA=(SERVER=DEDICATED)(SERVICE_NAME=FREEPDB1)))'<<EOF
+    exec ords.enable_schema(true);
+    exit;
+EOF"
 
-
+    # test mongo connections in the container
+    docker exec -it $orclImage bash -c "mongosh --tlsAllowInvalidCertificates 'mongodb://matt:matt@127.0.0.1:27017/matt?authMechanism=PLAIN&ssl=true&retryWrites=false&loadBalanced=true'<<EOF
+    db.createCollection('test123');
+EOF"
 
 }
 
@@ -387,7 +436,7 @@ esac
 
 # Let's go to work
 startUp
-case $whatwhat in
+case $menuChoice in
     1) 
         startOracle
         ;;
@@ -409,7 +458,7 @@ case $whatwhat in
     7)
         doNothing
         ;;
-    8)  # secret menu like in-n-out ;-) 
+    8)  
         cleanVolumes
         ;;
     9)
@@ -432,6 +481,7 @@ case $whatwhat in
         ;;
     *) 
         badChoice
+        ;;
 esac
 
 
